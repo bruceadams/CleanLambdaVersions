@@ -1,30 +1,38 @@
-from __future__ import absolute_import, print_function, unicode_literals
 import boto3
 
+CLIENT = boto3.client("lambda")
 
-def clean_old_lambda_versions(marker = ''):
-    client = boto3.client('lambda')
-    if marker == '':
-    	functions = client.list_functions()
-    else:
-	functions = client.list_functions(Marker=marker)			
-    for function in functions['Functions']:
-	#if function['FunctionName'] != "lamda-at-edge-name": #uncomment and replace lamda-at-edge-name with your lambda at edge to ignore lambda at edge 
-	  while True:
-          	versions = client.list_versions_by_function(FunctionName=function['FunctionArn'])['Versions']
-          	if len(versions) == 1:
-                	print('{}: done'.format(function['FunctionName']))
-              		break
-          	for version in versions:
-              		if version['Version'] != function['Version']:
-                  		arn = version['FunctionArn']
-                  		print('delete_function(FunctionName={})'.format(arn))
-                  		#client.delete_function(FunctionName=arn)  # uncomment me once you've checked
-	#else : #uncomment in-accordance with above if
-	#  print('Not lambda')
-    if 'NextMarker' in functions:
-		clean_old_lambda_versions(functions['NextMarker'])  
-        
 
-if __name__ == '__main__':
+def clean_old_version(function) -> None:
+    all_versions = CLIENT.list_versions_by_function(
+        FunctionName=function["FunctionArn"], MaxItems=400
+    )["Versions"]
+    highest_version = max((version["Version"] for version in all_versions))
+    to_delete = [
+        version
+        for version in all_versions
+        if version["Version"] not in (highest_version, function["Version"])
+    ]
+    print(function["FunctionName"])
+    for version in to_delete:
+        arn = version["FunctionArn"]
+        print(f"delete_function(FunctionName={arn})")
+        CLIENT.delete_function(FunctionName=arn)
+
+
+def clean_old_lambda_versions():
+    marker = ""
+    while marker is not None:
+        if marker:
+            functions = CLIENT.list_functions(Marker=marker)
+        else:
+            functions = CLIENT.list_functions()
+
+        for function in functions["Functions"]:
+            clean_old_version(function)
+
+        marker = functions.get("NextMarker")
+
+
+if __name__ == "__main__":
     clean_old_lambda_versions()
